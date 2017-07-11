@@ -51,8 +51,6 @@ export class GwdAnimation extends AMP.BaseElement {
      * The prefix to use for triggered timeline events if it is necessary to
      * avoid event name conflicts, supplied via the `timeline-event-prefix`
      * attribute (@see buildCallback).
-     * At this time, a prefix does not need to be used because the extension
-     * does not dispatch any events other than timeline events.
      * @private {string}
      */
     this.timelineEventPrefix_ = '';
@@ -86,6 +84,8 @@ export class GwdAnimation extends AMP.BaseElement {
    * Returns a registrable AMP action function which invokes the provided GWD
    * runtime method with the provided arguments extracted from the invocation
    * detail. The GWD runtime service is expected to already be registered.
+   * @param {string} methodName Runtime method to invoke.
+   * @param {!Array<string>} args Invocation arguments.
    * @return {!function(!../../../src/service/action-impl.ActionInvocation)}
    * @private
    */
