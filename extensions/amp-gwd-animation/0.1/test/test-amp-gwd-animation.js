@@ -82,7 +82,6 @@ describes.sandboxed('AMP GWD runtime', {}, () => {
 
       beforeEach(() => {
         ampdoc = env.ampdoc;
-        ampdoc.getBody().classList.add(ANIMATIONS_DISABLED_CLASS);
         ampdoc.getBody().innerHTML = `
             <div id="page1">
               <div>
@@ -105,8 +104,10 @@ describes.sandboxed('AMP GWD runtime', {}, () => {
       });
 
       it('should immediately disable animations on doc body ready', () => {
-        expect(ampdoc.getBody().classList.contains(ANIMATIONS_DISABLED_CLASS))
-            .to.be.true;
+        return ampdoc.whenBodyAvailable().then(() => {
+          expect(ampdoc.getBody().classList.contains(ANIMATIONS_DISABLED_CLASS))
+              .to.be.true;
+        });
       });
 
       it('should disable and re-enable', () => {

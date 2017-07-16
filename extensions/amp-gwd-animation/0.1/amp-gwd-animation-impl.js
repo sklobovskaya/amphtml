@@ -16,7 +16,6 @@
 import {createCustomEvent} from '../../../src/event-helper';
 import {registerServiceBuilderForDoc} from '../../../src/service';
 import {user} from '../../../src/log';
-import {waitForBodyPromise} from '../../../src/dom';
 
 /**
  * CSS class used to deactivate animations.
