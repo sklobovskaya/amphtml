@@ -21,3 +21,16 @@
 .i-amphtml-gwd-animation-disabled [class*=-animation] {
   animation: none !important;
 }
+
+/**
+ * GWD AMP ads with pages use an amp-carousel component as a pagedeck.
+ * The amp-carousel component's slide wrapper elements' height is slightly
+ * shorter than the carousel's, which causes the slides to be misaligned in
+ * their containers and cropped at the top. This works around the issue by
+ * unsetting `height: 100% !important` from the slides container on the pagedeck
+ * amp-carousel. GWD pages have an explicit height set and display correctly in
+ * the slider without the 100% height style on the container.
+ */
+#pagedeck > .i-amphtml-slides-container {
+  height: initial !important;
+}
