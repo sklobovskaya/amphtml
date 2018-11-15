@@ -15,7 +15,7 @@
  */
 import {createCustomEvent} from '../../../src/event-helper';
 import {dict, hasOwn} from '../../../src/utils/object';
-import {escapeCssSelectorIdent} from '../../../src/dom';
+import {escapeCssSelectorIdent, scopedQuerySelector} from '../../../src/dom';
 import {toArray} from '../../../src/types';
 import {user} from '../../../src/log';
 
@@ -126,43 +126,45 @@ function setCounter(receiver, counterName, counterValue) {
 }
 
 /**
- * AMP GWD animation runtime service.
- * @implements {../../../src/service.Disposable}
+ * AMP GWD animation runtime service. The service is registered at the top-level
+ * document level, though it may interact with GWD documents inside a FIE.
  */
 export class AmpGwdRuntimeService {
-  /**
-   * @param {!../../../src/service/ampdoc-impl.AmpDoc} ampdoc An AMP document
-   *     with GWD content in which to install the animation runtime controller.
-   */
-  constructor(ampdoc) {
-    /** @private {!../../../src/service/ampdoc-impl.AmpDoc} */
-    this.ampdoc_ = ampdoc;
-
-    /** @private {!Function} */
+  /** */
+  constructor() {
+    /** @const @private {!Function} */
     this.boundOnAnimationEndEvent_ = this.onAnimationEndEvent_.bind(this);
-
-    this.ampdoc_.whenBodyAvailable().then(() => { this.initialize_(); });
   }
 
   /**
-   * Performs setup tasks on body ready.
-   * @private
+   * Installs the runtime in the provided document (either the top-level
+   * document for single AmpDocs, or a FIE doc).
+   * @param {!Document} doc
    */
-  initialize_() {
+  install(doc) {
     // TODO(#7846): The GWD animation runtime should start out disabled, but
     // leaving it enabled for now as the main runtime is not yet integrated to
     // enable it. When it does so, uncomment the below code (also see
     // associated test).
     /*
     // Initially disable all animations (AMP runtime will enable when ready).
-    this.setEnabled(false);
+    this.setEnabled(doc, false);
     */
 
     // Begin listening for timeline events (GWD event element `animationend`).
-    this.listenForAnimationEnd_();
+    this.listenForAnimationEnd_(doc);
 
     // Permit animations to play on the first GWD page.
-    this.setCurrentPage(0);
+    this.setCurrentPage(doc, 0);
+  }
+
+  /**
+   * Uninstalls the runtime in the provided document (either the top-level
+   * document for single AmpDocs, or a FIE doc).
+   * @param {!Document} doc
+   */
+  uninstall(doc) {
+    this.unlistenForAnimationEnd_(doc);
   }
 
   /**
@@ -171,32 +173,36 @@ export class AmpGwdRuntimeService {
    * like play or gotoAndPlay may be invoked while in the disabled state, though
    * they will have no immediate effect; playback changes will be reflected when
    * animations are re-enabled.
+   * @param {!Document} doc
    * @param {boolean} enable True to enable, false to disable.
    */
-  setEnabled(enable) {
-    this.ampdoc_.getBody().classList.toggle(ANIMATIONS_DISABLED_CLASS, !enable);
+  setEnabled(doc, enable) {
+    doc.body.classList.toggle(ANIMATIONS_DISABLED_CLASS, !enable);
   }
 
   /**
    * Handles a page switch by resetting animations and goto counters on the
    * currently-active page and starting animations on the new page.
+   * @param {!Document} doc
    * @param {number} index The index of the newly-active page (a slide in the
    *     pagedeck amp-carousel).
    */
-  setCurrentPage(index) {
-    const gwdPages = this.ampdoc_.getRootNode().querySelectorAll(
+  setCurrentPage(doc, index) {
+    const gwdPages = doc.body.querySelectorAll(
         `.${escapeCssSelectorIdent(GWD_PAGE_WRAPPER_CLASS)}`);
 
     if (gwdPages.length == 0) {
+      user().warn(LOG_ID, 'No pages were found in the document.');
       return;
     }
 
     // Deactivate the outgoing current page, if there is one.
     // TODO(sklobovskaya): Decide if it's worth just storing the index.
-    const currentPageEl = this.ampdoc_.getRootNode().querySelector(
+    const activePageSelector =
         `.${escapeCssSelectorIdent(GWD_PAGE_WRAPPER_CLASS)}.${
           escapeCssSelectorIdent(PlaybackCssClass.PLAY)
-        }`);
+        }`;
+    const currentPageEl = scopedQuerySelector(doc.body, activePageSelector);
 
     if (currentPageEl) {
       this.deactivatePage_(currentPageEl);
@@ -208,7 +214,7 @@ export class AmpGwdRuntimeService {
     if (newPageEl) {
       this.activatePage_(newPageEl);
     } else {
-      user().error(LOG_ID, 'Could not find page with index ' + index + '.');
+      user().error(LOG_ID, 'Could not find page with index %s.', index);
     }
   }
 
@@ -268,10 +274,11 @@ export class AmpGwdRuntimeService {
 
   /**
    * The play action.
+   * @param {!Document} doc
    * @param {string} id Receiver id.
    */
-  play(id) {
-    const receiver = this.getReceiver(id);
+  play(doc, id) {
+    const receiver = this.getReceiver(doc, id);
 
     if (!receiver) {
       return;
@@ -282,10 +289,11 @@ export class AmpGwdRuntimeService {
 
   /**
    * The pause action.
+   * @param {!Document} doc
    * @param {string} id Receiver id.
    */
-  pause(id) {
-    const receiver = this.getReceiver(id);
+  pause(doc, id) {
+    const receiver = this.getReceiver(doc, id);
 
     if (!receiver) {
       return;
@@ -296,10 +304,11 @@ export class AmpGwdRuntimeService {
 
   /**
    * The togglePlay action.
+   * @param {!Document} doc
    * @param {string} id Receiver id.
    */
-  togglePlay(id) {
-    const receiver = this.getReceiver(id);
+  togglePlay(doc, id) {
+    const receiver = this.getReceiver(doc, id);
 
     if (!receiver) {
       return;
@@ -310,11 +319,12 @@ export class AmpGwdRuntimeService {
 
   /**
    * The gotoAndPlay action.
+   * @param {!Document} doc
    * @param {string} id Receiver id.
    * @param {string} label The name of the label animation to go to.
    */
-  gotoAndPlay(id, label) {
-    const receiver = this.getReceiver(id);
+  gotoAndPlay(doc, id, label) {
+    const receiver = this.getReceiver(doc, id);
 
     if (!receiver) {
       return;
@@ -326,11 +336,12 @@ export class AmpGwdRuntimeService {
   /**
    * The gotoAndPause action. A gotoAndPause is a gotoAndPlay followed by an
    * (almost) immediate pause.
+   * @param {!Document} doc
    * @param {string} id Receiver id.
    * @param {string} label The name of the label animation to go to.
    */
-  gotoAndPause(id, label) {
-    const receiver = this.getReceiver(id);
+  gotoAndPause(doc, id, label) {
+    const receiver = this.getReceiver(doc, id);
 
     if (!receiver) {
       return;
@@ -341,13 +352,14 @@ export class AmpGwdRuntimeService {
 
     // Pause playback. The pause must be triggered after a delay as a workaround
     // for a Safari bug that prevents pausing animations from working.
-    this.ampdoc_.win.setTimeout(() => {
-      this.pause(id);
+    doc.defaultView.setTimeout(() => {
+      this.pause(doc, id);
     }, GOTO_AND_PAUSE_DELAY);
   }
 
   /**
    * The gotoAndPlayNTimes action.
+   * @param {!Document} doc
    * @param {string} id Receiver id.
    * @param {string} label The name of the label animation to go to.
    * @param {number} maxCount The number of times this timeline event should
@@ -355,9 +367,9 @@ export class AmpGwdRuntimeService {
    * @param {string} eventName The source timeline event name, used to enforce
    *     that gotoAndPlay is triggered a maximum of N times for this event.
    */
-  gotoAndPlayNTimes(id, label, maxCount, eventName) {
+  gotoAndPlayNTimes(doc, id, label, maxCount, eventName) {
     if (maxCount <= 0) {
-      user().error(LOG_ID, `Invalid maxCount parameter: ${maxCount}`);
+      user().error(LOG_ID, 'Invalid maxCount parameter: %s', maxCount);
       return;
     }
 
@@ -366,7 +378,7 @@ export class AmpGwdRuntimeService {
       return;
     }
 
-    const receiver = this.getReceiver(id);
+    const receiver = this.getReceiver(doc, id);
 
     if (!receiver) {
       return;
@@ -385,24 +397,25 @@ export class AmpGwdRuntimeService {
   /**
    * Returns the element identified by a receiver id if it exists in the
    * invocation origin document and has a classList. If not found, returns null.
+   * @param {!Document} doc
    * @param {string} id The receiver id.
    * @return {?Element}
    */
-  getReceiver(id) {
+  getReceiver(doc, id) {
     if (id == 'document.body') {
-      return this.ampdoc_.getBody();
+      return doc.body;
     }
 
     // Try to locate the receiver by id in the DOM.
     // TODO(sklobovskaya): When support for groups is added, this lookup will
     // need to use GwdIds.
-    const receiver = this.ampdoc_.getRootNode().getElementById(id);
+    const receiver = doc.getElementById(id);
 
     // Check that a valid element was found.
     if (receiver && receiver.classList) {
       return receiver;
     } else {
-      user().error(LOG_ID, `Could not get receiver with id ${id}.`);
+      user().error(LOG_ID, 'Could not get receiver with id %s.', id);
       return null;
     }
   }
@@ -455,39 +468,39 @@ export class AmpGwdRuntimeService {
       return;
     }
 
+    const doc = event.target.ownerDocument;
+    const win = doc.defaultView;
     const detail = dict({
       'eventName': userEventName,
       'sourceEvent': event,
     });
-    const timelineEvent =
-        createCustomEvent(this.ampdoc_.win, GWD_TIMELINE_EVENT, detail);
-
-    this.ampdoc_.getRootNode().dispatchEvent(timelineEvent);
+    const timelineEvent = createCustomEvent(win, GWD_TIMELINE_EVENT, detail);
+    doc.dispatchEvent(timelineEvent);
   }
 
   /**
+   * Installs `animationend` event listeners in the provided document for
+   * timeline events support.
+   * @param {!Document} doc
    * @private
    */
-  listenForAnimationEnd_() {
+  listenForAnimationEnd_(doc) {
     for (let i = 0; i < VENDOR_ANIMATIONEND_EVENTS.length; i++) {
-      this.ampdoc_.getBody().addEventListener(
+      doc.body.addEventListener(
           VENDOR_ANIMATIONEND_EVENTS[i], this.boundOnAnimationEndEvent_, true);
     }
   }
 
   /**
+   * Uninstalls `animationend` event listeners in the provided document.
+   * @param {!Document} doc
    * @private
    */
-  unlistenForAnimationEnd_() {
+  unlistenForAnimationEnd_(doc) {
     for (let i = 0; i < VENDOR_ANIMATIONEND_EVENTS.length; i++) {
-      this.ampdoc_.getBody().removeEventListener(
+      doc.body.removeEventListener(
           VENDOR_ANIMATIONEND_EVENTS[i], this.boundOnAnimationEndEvent_, true);
     }
-  }
-
-  /** @override */
-  dispose() {
-    this.unlistenForAnimationEnd_();
   }
 }
 
